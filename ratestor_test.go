@@ -51,12 +51,13 @@ func TestGCRun(t *testing.T) {
 	}
 	rs.lock.Unlock()
 
-	time.Sleep(2 * time.Millisecond)
+	time.Sleep(4 * time.Millisecond)
 
 	rs.lock.Lock()
 
 	if _, ok := rs.rates["key1"]; ok {
 		t.Errorf("Expected key1 to be removed from the map")
 	}
+
 	rs.lock.Unlock()
 }

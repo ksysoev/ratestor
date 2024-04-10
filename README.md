@@ -1,7 +1,11 @@
 # RateStor: A Go Rate Limiting Library
 
-RateStor is a simple, efficient, and thread-safe rate-limiting library for Go. It allows you to limit the rate of requests.
+[![RateStor](https://github.com/ksysoev/ratestor/actions/workflows/main.yml/badge.svg)](https://github.com/ksysoev/ratestor/actions/workflows/main.yml)
+[![codecov](https://codecov.io/gh/ksysoev/ratestor/graph/badge.svg?token=0TWEWEJW3B)](https://codecov.io/gh/ksysoev/ratestor)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
+RateStor is a simple, efficient, and thread-safe rate-limiting library for Go. It allows you to limit the rate of requests.
+The library provides a flexible way to define different limits for different keys.
 
 ## Installation
 
@@ -27,11 +31,14 @@ func main () {
     stor := ratestor.NewRateStor()
     defer stor.Close()
 
-    for i:=0; i < 101; i++ {
-        err := stor.Allow("key", 1*time.Minute, 100)
-        if err == ratestor.ErrRateLimitExceeded {
-            fmt.Println("Rate limit is exceded")
-        }
+    err := stor.Allow("user1_min", 1*time.Minute, 100)
+    if err == ratestor.ErrRateLimitExceeded {
+        fmt.Println("Minute limit is exceded")
+    }
+
+    err := stor.Allow("user1_10min", 10*time.Minute, 300)
+    if err == ratestor.ErrRateLimitExceeded {
+        fmt.Println("10 Minute limit is exceded")
     }
 }
 ```
