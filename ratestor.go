@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	GC_BATCH_SIZE = 100
+	gcBatchSize = 100
 )
 
 // ErrRateLimitExceeded is an error that is returned when the rate limit is exceeded.
@@ -17,23 +17,23 @@ const (
 var ErrRateLimitExceeded = fmt.Errorf("rate limit exceeded")
 
 type RateValue struct {
-	Value     uint64
 	ExpiresAt time.Time
+	Value     uint64
 	Limit     uint64
 }
 
 type RateStor struct {
-	lock       *sync.Mutex
 	rates      map[string]RateValue
+	lock       *sync.Mutex
+	wg         *sync.WaitGroup
+	stop       context.CancelFunc
 	index      expIndex
 	gcInterval time.Duration
-	stop       context.CancelFunc
-	wg         *sync.WaitGroup
 }
 
 type indexValue struct {
-	Key       string
 	ExpiresAt time.Time
+	Key       string
 }
 
 type expIndex []indexValue // Heap type
@@ -47,6 +47,7 @@ func (h *expIndex) Pop() any {
 	n := len(old)
 	item := old[n-1]
 	*h = old[0 : n-1]
+
 	return item
 }
 
@@ -57,7 +58,6 @@ type Optition func(*RateStor)
 // The cleaning interval is set to 1 second by default.
 // The provided options can be used to customize the behavior of the RateStor instance.
 func NewRateStor(opts ...Optition) *RateStor {
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	stor := &RateStor{
@@ -89,7 +89,7 @@ func (rs *RateStor) Allow(key string, period time.Duration, limit uint64) error 
 	defer rs.lock.Unlock()
 
 	if rate, ok := rs.rates[key]; ok {
-		if !rate.ExpiresAt.Before(time.Now()) {
+		if rate.ExpiresAt.After(time.Now()) {
 			if rate.Value < rate.Limit {
 				rate.Value++
 				rs.rates[key] = rate
@@ -134,17 +134,23 @@ func (rs *RateStor) cleaner(ctx context.Context) {
 
 			for isRunning {
 				rs.lock.Lock()
-				for i := 0; i < GC_BATCH_SIZE; i++ {
+				for i := 0; i < gcBatchSize; i++ {
 					if rs.index.Len() == 0 {
 						isRunning = false
+
 						break
 					}
 
-					item := heap.Pop(&rs.index).(indexValue)
-					isReady := item.ExpiresAt.Before(time.Now())
-					if !isReady {
+					item, ok := heap.Pop(&rs.index).(indexValue)
+					if !ok {
+						panic("unexpected type" + fmt.Sprintf("%T", item))
+					}
+
+					if item.ExpiresAt.After(time.Now()) {
 						heap.Push(&rs.index, item)
+
 						isRunning = false
+
 						break
 					}
 
