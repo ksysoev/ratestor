@@ -9,12 +9,15 @@ import (
 )
 
 const (
-	gcBatchSize = 100
+	gcDefaultBatchSize = 100
 )
 
 // ErrRateLimitExceeded is an error that is returned when the rate limit is exceeded.
 // This error indicates that the maximum number of requests allowed within a certain time period has been reached.
 var ErrRateLimitExceeded = fmt.Errorf("rate limit exceeded")
+
+// ErrRateStorClosed is an error that indicates the rate stor is closed.
+var ErrRateStorClosed = fmt.Errorf("rate stor is closed")
 
 type RateValue struct {
 	ExpiresAt time.Time
@@ -23,12 +26,14 @@ type RateValue struct {
 }
 
 type RateStor struct {
-	rates      map[string]RateValue
-	lock       *sync.Mutex
-	wg         *sync.WaitGroup
-	stop       context.CancelFunc
-	index      expIndex
-	gcInterval time.Duration
+	rates       map[string]RateValue
+	lock        *sync.Mutex
+	wg          *sync.WaitGroup
+	stop        context.CancelFunc
+	index       expIndex
+	gcInterval  time.Duration
+	gcBatchSize int
+	isClosed    bool
 }
 
 type indexValue struct {
@@ -61,11 +66,13 @@ func NewRateStor(opts ...Optition) *RateStor {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	stor := &RateStor{
-		lock:       &sync.Mutex{},
-		rates:      make(map[string]RateValue),
-		gcInterval: 1 * time.Second,
-		stop:       cancel,
-		wg:         &sync.WaitGroup{},
+		lock:        &sync.Mutex{},
+		rates:       make(map[string]RateValue),
+		gcInterval:  1 * time.Second,
+		stop:        cancel,
+		wg:          &sync.WaitGroup{},
+		gcBatchSize: gcDefaultBatchSize,
+		isClosed:    false,
 	}
 
 	for _, opt := range opts {
@@ -88,8 +95,13 @@ func (rs *RateStor) Allow(key string, period time.Duration, limit uint64) error 
 	rs.lock.Lock()
 	defer rs.lock.Unlock()
 
+	if rs.isClosed {
+		return ErrRateStorClosed
+	}
+
+	now := time.Now()
 	if rate, ok := rs.rates[key]; ok {
-		if rate.ExpiresAt.After(time.Now()) {
+		if rate.ExpiresAt.After(now) {
 			if rate.Value < rate.Limit {
 				rate.Value++
 				rs.rates[key] = rate
@@ -101,7 +113,7 @@ func (rs *RateStor) Allow(key string, period time.Duration, limit uint64) error 
 		}
 	}
 
-	ExpiresAt := time.Now().Add(period)
+	ExpiresAt := now.Add(period)
 	rs.rates[key] = RateValue{
 		Value:     1,
 		ExpiresAt: ExpiresAt,
@@ -134,7 +146,9 @@ func (rs *RateStor) cleaner(ctx context.Context) {
 
 			for isRunning {
 				rs.lock.Lock()
-				for i := 0; i < gcBatchSize; i++ {
+				now := time.Now()
+
+				for i := 0; i < rs.gcBatchSize; i++ {
 					if rs.index.Len() == 0 {
 						isRunning = false
 
@@ -146,7 +160,7 @@ func (rs *RateStor) cleaner(ctx context.Context) {
 						panic("unexpected type" + fmt.Sprintf("%T", item))
 					}
 
-					if item.ExpiresAt.After(time.Now()) {
+					if item.ExpiresAt.After(now) {
 						heap.Push(&rs.index, item)
 
 						isRunning = false
@@ -169,6 +183,11 @@ func (rs *RateStor) cleaner(ctx context.Context) {
 
 // Close stops the RateStor instance and waits for all goroutines to complete.
 func (rs *RateStor) Close() {
+	rs.lock.Lock()
+	defer rs.lock.Unlock()
+
+	rs.isClosed = true
+
 	rs.stop()
 	rs.wg.Wait()
 }
@@ -180,5 +199,15 @@ func (rs *RateStor) Close() {
 func WithGCInterval(interval time.Duration) Optition {
 	return func(rs *RateStor) {
 		rs.gcInterval = interval
+	}
+}
+
+// WithGCBatchSize sets the garbage collection batch size for the RateStor instance.
+// The garbage collection batch size determines how many expired rate limit entries
+// will be removed in each garbage collection cycle.
+// The default garbage collection batch size is 100.
+func WithGCBatchSize(size int) Optition {
+	return func(rs *RateStor) {
+		rs.gcBatchSize = size
 	}
 }

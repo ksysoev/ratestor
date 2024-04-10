@@ -30,7 +30,7 @@ func TestAllow(t *testing.T) {
 }
 
 func TestGCRun(t *testing.T) {
-	rs := NewRateStor(WithGCInterval(2 * time.Millisecond))
+	rs := NewRateStor(WithGCInterval(2*time.Millisecond), WithGCBatchSize(10))
 	defer rs.Close()
 
 	_ = rs.Allow("key1", 3*time.Millisecond, 1)
@@ -60,4 +60,13 @@ func TestGCRun(t *testing.T) {
 	}
 
 	rs.lock.Unlock()
+}
+
+func TestClose(t *testing.T) {
+	rs := NewRateStor()
+	rs.Close()
+
+	if err := rs.Allow("key", time.Millisecond, 1); err != ErrRateStorClosed {
+		t.Errorf("Expected error %v, but got %v", ErrRateStorClosed, err)
+	}
 }
