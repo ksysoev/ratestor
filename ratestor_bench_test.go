@@ -42,7 +42,7 @@ func BenchmarkSameKeyParallelDifferentKeys(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			randomKey := strconv.Itoa(rand.IntN(1000))
+			randomKey := strconv.Itoa(rand.IntN(1000)) //nolint:gosec // G404: for tests only
 			_ = limiter.Allow(randomKey, 1*time.Second, 1)
 		}
 	})

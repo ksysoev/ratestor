@@ -46,7 +46,10 @@ type expIndex []indexValue // Heap type
 func (h expIndex) Len() int           { return len(h) }
 func (h expIndex) Less(i, j int) bool { return h[i].ExpiresAt.Before(h[j].ExpiresAt) }
 func (h expIndex) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *expIndex) Push(x any)        { *h = append(*h, x.(indexValue)) }
+func (h *expIndex) Push(x any) {
+	v, _ := x.(indexValue)
+	*h = append(*h, v)
+}
 func (h *expIndex) Pop() any {
 	old := *h
 	n := len(old)
@@ -169,7 +172,7 @@ func (rs *RateStor) cleaner(ctx context.Context) {
 					}
 
 					val, ok := rs.rates[item.Key]
-					if ok && val.ExpiresAt == item.ExpiresAt {
+					if ok && val.ExpiresAt.Equal(item.ExpiresAt) {
 						delete(rs.rates, item.Key)
 					}
 				}
